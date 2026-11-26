@@ -1,0 +1,8 @@
+# 新发布的依赖会被 pnpm 的 supply-chain 策略暂缓安装，显式放行本仓库已锁定的版本。
+minimumReleaseAgeExclude:
+  - '@work-studio/sdk@0.1.0'
+  - '@codemirror/commands@6.11.2'
+  - '@codemirror/search@6.7.3'
+  - '@vitest/mocker@5.1.2'
+  - '@vitest/spy@5.1.2'
+  - vitest@5.1.2

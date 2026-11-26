@@ -1,0 +1,30 @@
+{
+  "commands": [
+    {
+      "name": "text-editor.save",
+      "summary": "按原编码、BOM 与换行保存纯文本",
+      "args": {
+        "ref": {
+          "type": "string",
+          "required": true
+        },
+        "content": {
+          "type": "string",
+          "required": true
+        },
+        "expectedDigest": {
+          "type": "string"
+        },
+        "force": {
+          "type": "boolean"
+        }
+      },
+      "exitCodes": {
+        "ok": 0,
+        "failed": 1,
+        "invalid": 2,
+        "notFound": 3
+      }
+    }
+  ]
+}

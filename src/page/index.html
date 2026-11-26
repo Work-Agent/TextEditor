@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>纯文本编辑器</title>
+  </head>
+  <body>
+    <div id="app" class="te-app">
+      <header class="te-header">
+        <div class="te-title-wrap">
+          <div class="te-title-row">
+            <div id="title" class="te-title">text.txt</div>
+            <span id="dirty" class="te-dirty" aria-live="polite"></span>
+          </div>
+          <div class="te-chips">
+            <span id="language" class="te-chip"></span>
+            <span id="encoding" class="te-chip"></span>
+            <span id="eol" class="te-chip"></span>
+            <span id="size" class="te-chip"></span>
+          </div>
+        </div>
+        <div id="toolbar" class="te-toolbar"></div>
+        <button id="save" type="button" class="te-save" disabled>保存</button>
+      </header>
+
+      <div id="warning" class="te-warning" hidden>
+        <span id="readonly" class="te-warning-badge">只读</span>
+        <span id="warning-text"></span>
+      </div>
+
+      <div id="conflict" class="te-conflict" hidden>
+        <span>文件已在外部更新。</span>
+        <button id="conflict-reload" type="button">重新加载</button>
+        <button id="conflict-keep" type="button" class="ghost">保留我的修改</button>
+      </div>
+
+      <main id="editor" class="te-editor" role="textbox" aria-multiline="true"></main>
+
+      <footer class="te-footer">
+        <div class="te-footer-left">
+          <span id="status" class="te-status">就绪</span>
+          <span id="position" class="te-position"></span>
+        </div>
+        <span id="count" class="te-count"></span>
+      </footer>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

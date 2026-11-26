@@ -1,0 +1,173 @@
+name: Release plugin
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+      - '[0-9]*'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish plugin zip
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v7
+        with:
+          path: plugin
+          fetch-depth: 0
+
+      - name: Check PluginRegistry App secrets
+        env:
+          APP_CLIENT_ID: ${{ secrets.REGISTRY_APP_CLIENT_ID || vars.REGISTRY_APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.REGISTRY_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APP_CLIENT_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "::error::Missing REGISTRY_APP_CLIENT_ID / REGISTRY_APP_PRIVATE_KEY."
+            exit 1
+          fi
+
+      - name: Create PluginRegistry app token
+        id: registry-app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.REGISTRY_APP_CLIENT_ID || vars.REGISTRY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.REGISTRY_APP_PRIVATE_KEY }}
+          owner: Work-Agent
+          repositories: PluginRegistry
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.18.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: plugin/pnpm-lock.yaml
+
+      - name: Install plugin dependencies
+        working-directory: plugin
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate release tag
+        working-directory: plugin
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="$(node -p "require('./package.json').version")"
+          # 当前 tag 是 0.1 这样的短版本，package.json 是 0.1.0；两者都接受。
+          if [ "$TAG" != "$VERSION" ] && [ "${TAG}.0" != "$VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
+          fi
+
+      - name: Typecheck
+        working-directory: plugin
+        run: pnpm typecheck
+
+      - name: Test
+        working-directory: plugin
+        run: pnpm test
+
+      - name: Build
+        working-directory: plugin
+        run: pnpm build
+
+      - name: Pack plugin zip
+        working-directory: plugin
+        run: pnpm pack:plugin
+
+      - name: Verify zip
+        working-directory: plugin
+        run: |
+          set -euo pipefail
+          ZIP="$(ls release/*.zip | head -n1)"
+          unzip -l "$ZIP"
+          unzip -l "$ZIP" | grep -q 'dist/engine.js'
+          unzip -l "$ZIP" | grep -q 'dist/page/index.html'
+          unzip -l "$ZIP" | grep -q 'dist/settings/index.html'
+          unzip -l "$ZIP" | grep -q 'skills/text-editor/SKILL.md'
+          unzip -p "$ZIP" package.json | node -e "
+            let s = '';
+            process.stdin.on('data', (d) => (s += d));
+            process.stdin.on('end', () => {
+              const pkg = JSON.parse(s);
+              if (pkg.workstudio?.id !== 'text-editor') process.exit(1);
+              if (pkg.dependencies || pkg.devDependencies) process.exit(2);
+            });
+          "
+
+      - name: Read release metadata
+        id: meta
+        working-directory: plugin
+        run: |
+          set -euo pipefail
+          ZIP="$(basename "$(ls release/*.zip | head -n1)")"
+          VERSION="$(node -p "require('./package.json').version")"
+          SHA="$(tr -d '[:space:]' < "release/${ZIP}.sha256")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          files: |
+            plugin/release/*.zip
+            plugin/release/*.sha256
+
+      - name: Checkout plugin registry
+        uses: actions/checkout@v7
+        with:
+          repository: Work-Agent/PluginRegistry
+          path: PluginRegistry
+          token: ${{ steps.registry-app.outputs.token }}
+          fetch-depth: 0
+
+      - name: Write plugin registry entry
+        working-directory: plugin
+        env:
+          REGISTRY_DIR: ${{ github.workspace }}/PluginRegistry
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.meta.outputs.zip }}
+          SHA256: ${{ steps.meta.outputs.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: node scripts/write-registry-entry.mjs
+
+      - name: Validate plugin registry
+        working-directory: PluginRegistry
+        run: npm run validate
+
+      - name: Open PluginRegistry pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ steps.registry-app.outputs.token }}
+          path: PluginRegistry
+          base: main
+          branch: release/text-editor-${{ steps.meta.outputs.version }}
+          delete-branch: true
+          commit-message: "chore: add text-editor ${{ steps.meta.outputs.version }}"
+          title: "chore: add text-editor ${{ steps.meta.outputs.version }}"
+          body: |
+            Automated release from [${{ github.repository }}](${{ github.server_url }}/${{ github.repository }}).
+
+            - Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+            - Zip: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.meta.outputs.zip }}
+            - SHA256: `${{ steps.meta.outputs.sha }}`
+          add-paths: |
+            plugins/text-editor.json
